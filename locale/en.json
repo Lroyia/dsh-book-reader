@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Bookshelf",
+    "description": "Scans local EPUB, TXT, PDF and DOCX files into a local bookshelf and reads them offline in a Harness panel."
+  }
+}

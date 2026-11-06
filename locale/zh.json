@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "书架",
+    "description": "扫描本地 EPUB / TXT / PDF / DOCX 文件建立本地书架，在 Harness 面板里离线阅读。"
+  }
+}
