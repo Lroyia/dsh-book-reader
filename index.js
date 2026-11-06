@@ -307,7 +307,7 @@ async function parseBook(path, id, dataDir, mtimeMs) {
     }));
     const hasText = chapters.some((chapter) => chapter.blocks.length > 0);
     return {
-      title: parsed.title,
+      title: usableTitle(parsed.title) ? parsed.title : '',
       author: parsed.author,
       chapters,
       cover: undefined,
@@ -360,6 +360,30 @@ async function parseBook(path, id, dataDir, mtimeMs) {
 }
 
 /**
+ * The document titles that name no book.
+ *
+ * A document exported from a word processor often carries the title of its
+ * first page — a table of contents, a cover — which says nothing about the
+ * book and must not replace the file name on the shelf.
+ */
+const MEANINGLESS_TITLES = new Set([
+  '目录', '目次', '目录页', '封面', '扉页', '无标题', '未命名', 'untitled', 'unknown', 'document',
+  'contents', 'table of contents', 'toc', 'index', 'microsoft word', 'microsoft word 文档',
+  'microsoft powerpoint 演示文稿', 'microsoft excel 工作表', 'powerpoint presentation',
+]);
+
+/**
+ * Whether a document's title is worth putting on the shelf.
+ * @param {string|undefined} title - the title.
+ * @returns {boolean} true when the title names the book.
+ */
+function usableTitle(title) {
+  if (typeof title !== 'string') return false;
+  const trimmed = title.trim().toLowerCase();
+  return trimmed !== '' && !MEANINGLESS_TITLES.has(trimmed);
+}
+
+/**
  * The URL of one book's cover, when the shelf knows of one.
  * @param {string} id - the book's identity.
  * @param {string} stamp - the cache version.
@@ -382,7 +406,7 @@ function coverUrl(id, stamp) {
  */
 async function refineRecord(dataDir, record, book) {
   const fileName = basename(record.path, extname(record.path));
-  const wantsTitle = typeof book.title === 'string' && book.title.trim() !== '' && record.title === fileName;
+  const wantsTitle = usableTitle(book.title) && record.title === fileName;
   const wantsAuthor = typeof book.author === 'string' && book.author.trim() !== '' && !record.author;
   if (!wantsTitle && !wantsAuthor) return;
   const document = await readLibrary(dataDir);
