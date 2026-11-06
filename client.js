@@ -251,6 +251,7 @@ window.__ModuleLoader__.load({
 .nr-readerContent{flex:1;min-width:0;overflow-y:auto;padding:28px 24px 60px}
 .nr-prose{max-width:44em;margin:0 auto;font-size:var(--nr-font-size,17px);line-height:1.95;color:var(--dsw-alias-label-primary);word-break:break-word}
 .nr-prose p{margin:0 0 1.05em;text-indent:2em}
+.nr-note{margin:0 0 .85em;padding:.55em .9em;border-left:2px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:0 6px 6px 0;font-size:.86em;line-height:1.8;color:var(--dsw-alias-label-secondary);text-indent:0}
 .nr-figure{margin:1.4em 0;text-align:center}
 .nr-figure img{max-width:100%;height:auto;border-radius:6px;background:var(--dsw-alias-bg-layer-2)}
 .nr-figure figcaption{font-size:12px;color:var(--dsw-alias-label-tertiary);margin-top:6px}
@@ -1013,7 +1014,9 @@ window.__ModuleLoader__.load({
                                     onError: () => markImageFailed(block.src),
                                   }),
                                 )
-                            : h('p', { key: position }, block.text),
+                            : block.t === 'note'
+                              ? h('aside', { className: 'nr-note', key: position }, block.text)
+                              : h('p', { key: position }, block.text),
                         ),
                   ),
           ),

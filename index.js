@@ -297,6 +297,18 @@ async function parseBook(path, id, dataDir, mtimeMs) {
     if (manifest?.imageStamp !== stamp) {
       await writeImageCache(dataDir, id, stamp, parsed.images, (image) => image.data);
     }
+    // The cover of a PDF is the picture on its first page; it is copied out
+    // of the cache so that the shelf can show it.
+    let hasCover = false;
+    const first = parsed.images[0];
+    if (first !== undefined && first.data !== undefined) {
+      try {
+        await writeCoverCache(dataDir, id, stamp, { data: first.data, type: first.type });
+        hasCover = true;
+      } catch {
+        hasCover = false;
+      }
+    }
     const chapters = pdfChapters(parsed).map((chapter) => ({
       title: chapter.title,
       blocks: chapter.blocks.map((block) =>
@@ -310,7 +322,7 @@ async function parseBook(path, id, dataDir, mtimeMs) {
       title: usableTitle(parsed.title) ? parsed.title : '',
       author: parsed.author,
       chapters,
-      cover: undefined,
+      cover: hasCover ? true : undefined,
       noText: !hasText,
     };
   }
@@ -408,7 +420,8 @@ async function refineRecord(dataDir, record, book) {
   const fileName = basename(record.path, extname(record.path));
   const wantsTitle = usableTitle(book.title) && record.title === fileName;
   const wantsAuthor = typeof book.author === 'string' && book.author.trim() !== '' && !record.author;
-  if (!wantsTitle && !wantsAuthor) return;
+  const wantsCover = book.cover === true && record.cover !== true;
+  if (!wantsTitle && !wantsAuthor && !wantsCover) return;
   const document = await readLibrary(dataDir);
   const books = document.books.map((entry) =>
     entry.id === record.id
@@ -416,6 +429,7 @@ async function refineRecord(dataDir, record, book) {
           ...entry,
           title: wantsTitle ? book.title.trim() : entry.title,
           author: wantsAuthor ? book.author.trim() : entry.author,
+          cover: wantsCover ? true : entry.cover,
         }
       : entry,
   );
