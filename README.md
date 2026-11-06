@@ -3,6 +3,9 @@
 > 一个跑在 [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness) 里的本地书籍阅读器插件：
 > 扫描本地 **EPUB / TXT / PDF / DOCX** 文档，建立一本本地书架，然后在面板里离线阅读。
 
+[![license](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+[![platform](https://img.shields.io/badge/DeepSeek%20Harness-0.2%2B-blue.svg)](https://github.com/deepseek-ai/DeepSeek-Harness)
+
 ![书架界面](docs/shelf.png)
 
 *书架：搜索、排序、分组、封面缩略图，右上角「扫描文件夹」把本地目录收进书架。*
@@ -53,18 +56,44 @@
 
 ## 安装
 
-需要 **DeepSeek Harness 0.2+**（`engines.dsh`）和 **Node.js ≥ 22.12**。
+需要 **DeepSeek Harness 0.2+**（自带 Node.js 22.12+ 运行时）。
 
-```bash
-git clone <this-repo>
+仓库地址：<https://github.com/Lroyia/dsh-book-reader>
+
+### 方式一：图形界面（推荐）
+
+在 Harness 里打开**插件**页 → **安装插件** → 填入仓库地址
+
+```
+github:Lroyia/dsh-book-reader
 ```
 
-然后在 Harness 里安装这个目录并启用它：
+装完后在插件页把「书架」**启用**，左侧栏就会出现它的图标。
 
-- 图形界面：**插件 → 安装插件 → 选择本目录**，装完在插件页点启用；
-- 命令行：`dsh plugin --profile <你的 profile> install <本目录>`。
+### 方式二：命令行
 
-启用后左侧栏会出现「书架」图标。
+```bash
+# 把仓库克隆到本地
+git clone https://github.com/Lroyia/dsh-book-reader.git
+
+# 让指定 profile 装上它（profile 名见设置里的「工作区 / Profile」）
+dsh plugin --profile desktop add ./dsh-book-reader
+```
+
+`dsh plugin` 只是把参数转交给 profile 目录里的 pnpm，因此任何 pnpm 能装的写法都行，
+例如直接写仓库地址：
+
+```bash
+dsh plugin --profile desktop add github:Lroyia/dsh-book-reader
+```
+
+装完同样要在插件页启用一次。
+
+### 手动安装
+
+把仓库目录放进任意位置，然后在 profile 的 `package.json` 的 `dependencies` 里加一条
+`"@local/book-reader": "link:/绝对路径/dsh-book-reader"`，并在 `dsh.profile.bundles`
+数组里加上 `"@local/book-reader"`，然后在 profile 目录里跑一次 `pnpm install`。
 
 ## 使用
 

@@ -41,6 +41,14 @@
     "docx",
     "txt"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lroyia/dsh-book-reader.git"
+  },
+  "homepage": "https://github.com/Lroyia/dsh-book-reader#readme",
+  "bugs": {
+    "url": "https://github.com/Lroyia/dsh-book-reader/issues"
+  },
   "engines": {
     "node": ">=22.12.0"
   },
