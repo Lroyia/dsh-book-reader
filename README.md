@@ -153,17 +153,30 @@ git push origin main && git push origin v0.1.1
 `.github/workflows/publish.yml` 会在标签推送后把包发到 npm（带 provenance 溯源）。
 它需要仓库里有一个 `NPM_TOKEN` 密钥：
 
-1. 到 npmjs.com → 右上角头像 → **Access Tokens** → **Generate New Token** →
-   类型选 **Automation**，勾选 **Read and write packages**；
-2. 复制生成的 token；
+1. 到 npmjs.com → 右上角头像 → **Access Tokens** → **Generate New Token**，填一个名字，
+   然后按 npm 当前的表单设置：
+
+   | 表单项 | 选什么 | 为什么 |
+   | --- | --- | --- |
+   | **Bypass two-factor authentication** | **勾上** | npm 要求 CI 发布用的 token 必须能绕过 2FA，不勾会被拒（403） |
+   | **Permissions** | **Read and write (publish and stage)** | 只有这个能真正发布新版本 |
+   | **Select Packages** | **All Packages** | 首次发布时包还不存在，限定到具体包会选不到它 |
+   | **Expiration** | 按需，建议 90 天 | 到期换一枚新的 |
+
+   > 若报 403 且提示 `Two-factor authentication or granular access token with bypass 2fa enabled`，
+   > 就是上面第一项没勾。
+
+2. 复制生成的 token（**只显示这一次**）；
 3. 到 GitHub 仓库 → **Settings** → **Secrets and variables** → **Actions** →
    **New repository secret**，名字填 `NPM_TOKEN`，值粘贴那个 token。
 
 发布成功后包名就是 `@lroyia/dsh-book-reader`，`dsh plugin --profile <profile> add @lroyia/dsh-book-reader`
 即可安装。
 
-> 想改成免密钥发布（OIDC）在 npm 上给这个包开启 **Trusted Publishing**，
-> 再把 workflow 里的 `NPM_TOKEN` 换成 `id-token: write` 权限即可。
+> **下一步建议**：npm 已宣布「带 bypass 2FA 的直接发布 token」将在 **2027 年 1 月**下线，
+> 官方推荐改用免密钥的 **Trusted Publishing（OIDC）**：等首版发上去后，在 npm 包页面的
+> 设置里加一个 Trusted Publisher（仓库 `Lroyia/dsh-book-reader`、工作流文件名 `publish.yml`），
+> 之后 GitHub 里的 `NPM_TOKEN` 就可以删掉了——本仓库的 workflow 已经带上了 `id-token: write` 权限。
 
 ## 许可
 

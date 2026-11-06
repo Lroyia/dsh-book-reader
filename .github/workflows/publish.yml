@@ -32,7 +32,21 @@ jobs:
           fi
           echo "发布 $NAME@$VERSION"
 
+      - name: 检查凭据
+        run: |
+          if ! npm whoami; then
+            echo "::error::NPM_TOKEN 无效，或没有这个包的发布权限"
+            exit 1
+          fi
+          echo "以 $(npm whoami) 的身份发布"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: 发布到 npm
-        run: npm publish --provenance --access public
+        run: |
+          if ! npm publish --provenance --access public; then
+            echo "::error::发布失败。若 npm 报 403 且提示 Two-factor authentication，说明这枚 NPM_TOKEN 没有勾选「Bypass two-factor authentication」——请到 npmjs.com → Access Tokens 重新生成一枚 granular token，勾上该选项，权限选 Read and write (publish and stage)，包范围选 All Packages。"
+            exit 1
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
