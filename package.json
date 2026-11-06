@@ -1,7 +1,6 @@
 {
-  "name": "@local/book-reader",
+  "name": "@lroyia/dsh-book-reader",
   "version": "0.1.0",
-  "private": true,
   "description": "书架阅读器：扫描本地 EPUB / TXT / PDF / DOCX 文档建立本地书架，并在 Harness 面板中离线阅读。",
   "type": "module",
   "icon": "./icon.svg",
@@ -18,7 +17,9 @@
     "lib/*.js",
     "locale/*.json",
     "icon.svg",
-    "README.md"
+    "docs/*.png",
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -51,6 +52,10 @@
   },
   "engines": {
     "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "license": "MIT"
 }

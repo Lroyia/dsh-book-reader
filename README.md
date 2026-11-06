@@ -58,42 +58,36 @@
 
 需要 **DeepSeek Harness 0.2+**（自带 Node.js 22.12+ 运行时）。
 
-仓库地址：<https://github.com/Lroyia/dsh-book-reader>
+包发布在 npm 上，名字是 **`@lroyia/dsh-book-reader`**。
 
-### 方式一：图形界面（推荐）
+### 从 npm 装（推荐）
 
-在 Harness 里打开**插件**页 → **安装插件** → 填入仓库地址
+图形界面：**插件**页 → **安装插件** → 填入包名
 
 ```
-github:Lroyia/dsh-book-reader
+@lroyia/dsh-book-reader
 ```
+
+命令行：
+
+```bash
+dsh plugin --profile desktop add @lroyia/dsh-book-reader
+```
+
+`dsh plugin` 只是把参数转交给 profile 目录里的 pnpm，因此任何 pnpm 能装的写法都行。
 
 装完后在插件页把「书架」**启用**，左侧栏就会出现它的图标。
 
-### 方式二：命令行
+### 从源码装
 
 ```bash
-# 把仓库克隆到本地
 git clone https://github.com/Lroyia/dsh-book-reader.git
-
-# 让指定 profile 装上它（profile 名见设置里的「工作区 / Profile」）
 dsh plugin --profile desktop add ./dsh-book-reader
 ```
 
-`dsh plugin` 只是把参数转交给 profile 目录里的 pnpm，因此任何 pnpm 能装的写法都行，
-例如直接写仓库地址：
-
-```bash
-dsh plugin --profile desktop add github:Lroyia/dsh-book-reader
-```
-
-装完同样要在插件页启用一次。
-
-### 手动安装
-
-把仓库目录放进任意位置，然后在 profile 的 `package.json` 的 `dependencies` 里加一条
-`"@local/book-reader": "link:/绝对路径/dsh-book-reader"`，并在 `dsh.profile.bundles`
-数组里加上 `"@local/book-reader"`，然后在 profile 目录里跑一次 `pnpm install`。
+或者手动：把仓库目录放进任意位置，在 profile 的 `package.json` 的 `dependencies` 里加一条
+`"@lroyia/dsh-book-reader": "link:/绝对路径/dsh-book-reader"`，并在 `dsh.profile.bundles`
+数组里加上 `"@lroyia/dsh-book-reader"`，然后在 profile 目录里跑一次 `pnpm install`。
 
 ## 使用
 
@@ -139,6 +133,37 @@ node --check index.js && node --check client.js   # 语法检查
 
 改完 `index.js` 后需要把插件**停用再启用**一次，Host 半边才会重新载入；
 `client.js` 刷新页面即可生效。
+
+推送到 `main` 会跑 CI（语法检查 + 清单一致性）。
+
+## 发布
+
+版本号写在 `package.json` 里，发布由标签触发：
+
+```bash
+# 1. 改版本号
+npm version 0.1.1 --no-git-tag-version
+git commit -am "版本号定为 0.1.1"
+
+# 2. 打标签并推送 —— workflow 会核对标签与 package.json 的版本是否一致
+git tag -a v0.1.1 -m "书架 v0.1.1"
+git push origin main && git push origin v0.1.1
+```
+
+`.github/workflows/publish.yml` 会在标签推送后把包发到 npm（带 provenance 溯源）。
+它需要仓库里有一个 `NPM_TOKEN` 密钥：
+
+1. 到 npmjs.com → 右上角头像 → **Access Tokens** → **Generate New Token** →
+   类型选 **Automation**，勾选 **Read and write packages**；
+2. 复制生成的 token；
+3. 到 GitHub 仓库 → **Settings** → **Secrets and variables** → **Actions** →
+   **New repository secret**，名字填 `NPM_TOKEN`，值粘贴那个 token。
+
+发布成功后包名就是 `@lroyia/dsh-book-reader`，`dsh plugin --profile <profile> add @lroyia/dsh-book-reader`
+即可安装。
+
+> 想改成免密钥发布（OIDC）在 npm 上给这个包开启 **Trusted Publishing**，
+> 再把 workflow 里的 `NPM_TOKEN` 换成 `id-token: write` 权限即可。
 
 ## 许可
 

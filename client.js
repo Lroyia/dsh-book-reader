@@ -11,7 +11,7 @@
  * so it survives a page reload.
  */
 window.__ModuleLoader__.load({
-  id: '@local/book-reader',
+  id: '@lroyia/dsh-book-reader',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
