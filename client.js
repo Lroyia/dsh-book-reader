@@ -121,6 +121,8 @@ window.__ModuleLoader__.load({
       'reader.empty': '这一章没有内容。',
       'reader.noText': '这个文档没有可提取的文字（扫描件没有文字层），请用其它阅读器打开。',
       'reader.imageFailed': '插图加载失败',
+      'reader.zoom.hint': '双击放大',
+      'reader.zoom.close': '关闭',
     };
 
     const en = {
@@ -183,6 +185,8 @@ window.__ModuleLoader__.load({
       'reader.empty': 'This chapter has no content.',
       'reader.noText': 'This document has no text layer (a scan has none), so it cannot be read here.',
       'reader.imageFailed': 'The illustration could not be loaded',
+      'reader.zoom.hint': 'Double click to enlarge',
+      'reader.zoom.close': 'Close',
     };
 
     /**
@@ -253,8 +257,13 @@ window.__ModuleLoader__.load({
 .nr-prose p{margin:0 0 1.05em;text-indent:2em}
 .nr-note{margin:0 0 .85em;padding:.55em .9em;border-left:2px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:0 6px 6px 0;font-size:.86em;line-height:1.8;color:var(--dsw-alias-label-secondary);text-indent:0}
 .nr-figure{margin:1.4em 0;text-align:center}
-.nr-figure img{max-width:100%;height:auto;border-radius:6px;background:var(--dsw-alias-bg-layer-2)}
+.nr-figure img{max-width:100%;height:auto;border-radius:6px;background:var(--dsw-alias-bg-layer-2);cursor:zoom-in}
 .nr-figure figcaption{font-size:12px;color:var(--dsw-alias-label-tertiary);margin-top:6px}
+.nr-lightbox{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.74);cursor:zoom-out;touch-action:none}
+.nr-lightboxImage{max-width:94vw;max-height:92vh;object-fit:contain;transform-origin:center center;user-select:none;-webkit-user-drag:none;box-shadow:0 10px 48px rgba(0,0,0,.55);cursor:grab}
+.nr-lightboxImage:active{cursor:grabbing}
+.nr-lightboxClose{position:absolute;top:56px;right:16px;width:36px;height:36px;border-radius:50%;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:22px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.nr-lightboxClose:hover{background:var(--dsw-alias-bg-layer-1)}
 .nr-imageFailed{font-size:12px;color:var(--dsw-alias-label-tertiary);padding:12px;border:1px dashed var(--dsw-alias-border-l1);border-radius:6px}
 .nr-readerFooter{flex:none;display:flex;align-items:center;justify-content:center;gap:14px;padding:10px 20px;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px;color:var(--dsw-alias-label-tertiary)}
 .nr-loading{display:flex;align-items:center;justify-content:center;height:100%;color:var(--dsw-alias-label-secondary);font-size:13px}
@@ -780,8 +789,69 @@ window.__ModuleLoader__.load({
       const [showToc, setShowToc] = useState(() => readStored(STORAGE.toc, '1') === '1');
       const [themeMode, setThemeMode] = useState(() => (readStored(STORAGE.theme, 'system') === 'paper' ? 'paper' : 'system'));
       const [failedImages, setFailedImages] = useState(() => new Set());
+      const [zoom, setZoom] = useState(undefined);
       const contentRef = useRef(null);
       const ratioRef = useRef(0);
+      const zoomRef = useRef(null);
+      const dragRef = useRef(null);
+
+      // The enlarged picture: its place, its size and where it is dragged to.
+      const openZoom = (src) => setZoom({ src, scale: 1, x: 0, y: 0 });
+      const closeZoom = () => {
+        setZoom(undefined);
+        dragRef.current = null;
+      };
+
+      // Escape closes the enlarged picture. The host takes Escape for
+      // itself, so the key is caught on the picture itself, which has the
+      // focus while it is open, and it does not travel on to the host.
+      useEffect(() => {
+        if (zoom === undefined) return undefined;
+        const element = zoomRef.current;
+        if (element !== null && element !== undefined && typeof element.focus === 'function') {
+          element.focus();
+        }
+        return undefined;
+      }, [zoom !== undefined]);
+
+      // The wheel zooms the picture in and out. The listener is not passive,
+      // so the page underneath does not scroll while the picture is open.
+      useEffect(() => {
+        const element = zoomRef.current;
+        if (element === null || element === undefined || zoom === undefined) return undefined;
+        const onWheel = (event) => {
+          event.preventDefault();
+          const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+          setZoom((current) =>
+            current === undefined
+              ? current
+              : { ...current, scale: Math.min(8, Math.max(0.2, current.scale * factor)) },
+          );
+        };
+        element.addEventListener('wheel', onWheel, { passive: false });
+        return () => element.removeEventListener('wheel', onWheel);
+      }, [zoom === undefined]);
+
+      // Dragging moves the picture when it is larger than the window.
+      const onZoomPointerDown = (event) => {
+        if (zoom === undefined) return;
+        dragRef.current = { x: event.clientX, y: event.clientY, ox: zoom.x, oy: zoom.y };
+        if (typeof event.currentTarget.setPointerCapture === 'function') {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }
+      };
+      const onZoomPointerMove = (event) => {
+        const drag = dragRef.current;
+        if (drag === null || drag === undefined) return;
+        setZoom((current) =>
+          current === undefined
+            ? current
+            : { ...current, x: drag.ox + (event.clientX - drag.x), y: drag.oy + (event.clientY - drag.y) },
+        );
+      };
+      const onZoomPointerUp = () => {
+        dragRef.current = null;
+      };
 
       useEffect(() => {
         let cancelled = false;
@@ -1011,6 +1081,11 @@ window.__ModuleLoader__.load({
                                     src: block.src,
                                     alt: block.alt ?? '',
                                     loading: 'lazy',
+                                    // The picture is enlarged by a double
+                                    // click; it must not be dragged away.
+                                    draggable: false,
+                                    title: t('reader.zoom.hint'),
+                                    onDoubleClick: () => openZoom(block.src),
                                     onError: () => markImageFailed(block.src),
                                   }),
                                 )
@@ -1036,6 +1111,49 @@ window.__ModuleLoader__.load({
             t('reader.next') + ' ›',
           ),
         ),
+        zoom === undefined
+          ? null
+          : h(
+              'div',
+              {
+                className: 'nr-lightbox',
+                ref: zoomRef,
+                tabIndex: -1,
+                onKeyDown: (event) => {
+                  if (event.key !== 'Escape') return;
+                  // The key is taken here; it must not reach the host, which
+                  // would close the panel.
+                  event.nativeEvent?.stopPropagation?.();
+                  event.preventDefault();
+                  closeZoom();
+                },
+                onClick: (event) => {
+                  if (event.target === event.currentTarget) closeZoom();
+                },
+                onPointerDown: onZoomPointerDown,
+                onPointerMove: onZoomPointerMove,
+                onPointerUp: onZoomPointerUp,
+                onPointerCancel: onZoomPointerUp,
+              },
+              h('img', {
+                className: 'nr-lightboxImage',
+                src: zoom.src,
+                alt: '',
+                draggable: false,
+                style: { transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})` },
+              }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'nr-lightboxClose',
+                  title: t('reader.zoom.close'),
+                  'aria-label': t('reader.zoom.close'),
+                  onClick: closeZoom,
+                },
+                '×',
+              ),
+            ),
       );
     }
 
