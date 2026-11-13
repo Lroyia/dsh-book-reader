@@ -145,41 +145,57 @@ node --check index.js && node --check client.js   # 语法检查
 
 ```bash
 # 1. 改版本号
-npm version 0.1.1 --no-git-tag-version
-git commit -am "版本号定为 0.1.1"
+npm version 0.1.2 --no-git-tag-version
+git commit -am "版本号定为 0.1.2"
 
 # 2. 打标签并推送 —— workflow 会核对标签与 package.json 的版本是否一致
-git tag -a v0.1.1 -m "书架 v0.1.1"
-git push origin main && git push origin v0.1.1
+git tag -a v0.1.2 -m "书架 v0.1.2"
+git push origin main && git push origin v0.1.2
 ```
 
-`.github/workflows/publish.yml` 会在标签推送后把包发到 npm（带 provenance 溯源）。
-它需要仓库里有一个 `NPM_TOKEN` 密钥：
-
-1. 到 npmjs.com → 右上角头像 → **Access Tokens** → **Generate New Token**，填一个名字，
-   然后按 npm 当前的表单设置：
-
-   | 表单项 | 选什么 | 为什么 |
-   | --- | --- | --- |
-   | **Bypass two-factor authentication** | **勾上** | npm 要求 CI 发布用的 token 必须能绕过 2FA，不勾会被拒（403） |
-   | **Permissions** | **Read and write (publish and stage)** | 只有这个能真正发布新版本 |
-   | **Select Packages** | **All Packages** | 首次发布时包还不存在，限定到具体包会选不到它 |
-   | **Expiration** | 按需，建议 90 天 | 到期换一枚新的 |
-
-   > 若报 403 且提示 `Two-factor authentication or granular access token with bypass 2fa enabled`，
-   > 就是上面第一项没勾。
-
-2. 复制生成的 token（**只显示这一次**）；
-3. 到 GitHub 仓库 → **Settings** → **Secrets and variables** → **Actions** →
-   **New repository secret**，名字填 `NPM_TOKEN`，值粘贴那个 token。
+`.github/workflows/publish.yml` 会在标签推送后把包发到 npm，
+走 **Trusted Publishing（OIDC）**：GitHub 用 `id-token: write` 权限签发一次性令牌，
+npm 拿它换成**只对这一次发布有效**的凭据——仓库里不需要任何 npm token 密钥，
+发出去的包自带 provenance 溯源。
 
 发布成功后包名就是 `@lroyia/dsh-book-reader`，`dsh plugin --profile <profile> add @lroyia/dsh-book-reader`
 即可安装。
 
-> **下一步建议**：npm 已宣布「带 bypass 2FA 的直接发布 token」将在 **2027 年 1 月**下线，
-> 官方推荐改用免密钥的 **Trusted Publishing（OIDC）**：等首版发上去后，在 npm 包页面的
-> 设置里加一个 Trusted Publisher（仓库 `Lroyia/dsh-book-reader`、工作流文件名 `publish.yml`），
-> 之后 GitHub 里的 `NPM_TOKEN` 就可以删掉了——本仓库的 workflow 已经带上了 `id-token: write` 权限。
+### Trusted Publisher 的配置（npmjs.com）
+
+包页面 → **Settings** → **Trusted publishing** → **Add trusted publisher** → **GitHub Actions**：
+
+| 表单项 | 值 |
+| --- | --- |
+| **Organization or user** | `Lroyia` |
+| **Repository** | `dsh-book-reader` |
+| **Workflow filename** | `publish.yml` |
+| **Environment name** | 留空 |
+
+- 三个字段**大小写敏感**，填错只有等到真正发布那一刻才会报错——npm 保存时并不校验。
+- 新建的 Trusted Publisher 需要在 **2 天内**完成第一次成功发布，否则过期作废（删掉重建即可）。
+- 包在 npm 上还没建立时是配不了 Trusted Publisher 的：得先手动发一版。
+
+### 为什么 workflow 里没有 NPM_TOKEN
+
+- npm 的「带 bypass 2FA 的直接发布 token」将在 **2027 年 1 月**下线，
+  Trusted Publishing 是官方给的替代：免密钥、凭据一次一换、无法被复制重用。
+- npm CLI 会自己发现 CI 环境并做 OIDC 交换，所以发布步骤里**不能**再出现
+  `NODE_AUTH_TOKEN`——有 token 在，npm 会优先用它。
+- 换过去之后，GitHub 仓库里那个 `NPM_TOKEN` 密钥就可以删了
+  （先确认新版本发布成功，再去 npmjs.com 把旧 token 也吊销）。
+
+### 排查
+
+| 现象 | 多半是 |
+| --- | --- |
+| `ENEEDAUTH` | npm CLI 低于 11.5.1（workflow 用 Node 24 规避）；或工作流文件名与 Trusted Publisher 对不上 |
+| `404 Not Found - PUT` | Trusted Publisher 的仓库名 / 环境名对不上，或这个包还没有 Trusted Publisher |
+| `E422 ... repository.url` | `package.json` 里的 `repository.url` 与实际的 GitHub 仓库不一致 |
+| 发布仍用了旧 token | 发布步骤里还留着 `NODE_AUTH_TOKEN`，或仓库里仍配着 `NPM_TOKEN` 密钥 |
+
+`npm whoami` 在这条链路上**不能**用来判断 Trusted Publisher 有没有配好——
+OIDC 凭据只在发布那一刻才生成，`whoami` 看不到它。
 
 ## 许可
 

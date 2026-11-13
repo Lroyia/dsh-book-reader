@@ -1,6 +1,7 @@
 name: Publish to npm
 
 # 推送 v* 标签即发布：版本号必须与 package.json 一致，否则拒绝发布。
+# 认证走 npm Trusted Publishing（OIDC）：仓库里不需要任何 npm token 密钥。
 on:
   push:
     tags:
@@ -8,7 +9,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+  id-token: write # Trusted Publishing 必需：用来向 GitHub 换取一次性 OIDC 令牌
 
 jobs:
   publish:
@@ -18,9 +19,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          # Node 24 自带 npm 11.5.1 以上，Trusted Publishing 的下限就是它
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          scope: lroyia
 
       - name: 核对版本号
         run: |
@@ -30,23 +31,24 @@ jobs:
             echo "::error::标签 $TAG 与 package.json 的版本 $VERSION 不一致"
             exit 1
           fi
-          echo "发布 $NAME@$VERSION"
+          echo "发布 @lroyia/dsh-book-reader@$VERSION"
 
-      - name: 检查凭据
+      - name: 检查发布环境
         run: |
-          if ! npm whoami; then
-            echo "::error::NPM_TOKEN 无效，或没有这个包的发布权限"
+          NPM_VERSION=$(npm --version)
+          echo "npm $NPM_VERSION"
+          node -e "const [a,b,c]=process.argv[1].split('.').map(Number); if (a<11||(a===11&&(b<5||(b===5&&c<1)))) { console.error('::error::npm '+process.argv[1]+' 太旧，Trusted Publishing 需要 npm >= 11.5.1'); process.exit(1) }" "$NPM_VERSION"
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            echo "::error::没有 ACTIONS_ID_TOKEN_REQUEST_URL：workflow 缺少 id-token: write 权限"
             exit 1
           fi
-          echo "以 $(npm whoami) 的身份发布"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          echo "OIDC 环境就绪"
 
       - name: 发布到 npm
         run: |
+          # 不带 NODE_AUTH_TOKEN：npm CLI 会自己发现 CI 环境，用 OIDC 换一次性凭据；
+          # provenance 也会随之自动生成。
           if ! npm publish --provenance --access public; then
-            echo "::error::发布失败。若 npm 报 403 且提示 Two-factor authentication，说明这枚 NPM_TOKEN 没有勾选「Bypass two-factor authentication」——请到 npmjs.com → Access Tokens 重新生成一枚 granular token，勾上该选项，权限选 Read and write (publish and stage)，包范围选 All Packages。"
+            echo "::error::发布失败。若报 ENEEDAUTH / 404 Not Found - PUT，多半是 npmjs.com 上的 Trusted Publisher 与本 workflow 对不上：仓库 Lroyia/dsh-book-reader、工作流文件名 publish.yml、Environment 留空（三个字段都大小写敏感）。"
             exit 1
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
