@@ -23,7 +23,12 @@ jobs:
           done
 
       - name: 书架存储测试
-        run: node --test test/
+        # 逐个文件跑：Node 22 的测试器不认目录参数（会把 test/ 当成模块去 require），
+        # 显式给出文件路径在任何 Node 版本上都不会歧义。
+        run: |
+          for file in test/*.test.mjs; do
+            node --test "$file"
+          done
 
       - name: package.json 与补丁文件
         run: |

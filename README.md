@@ -133,7 +133,7 @@ lib/store.js      本地书架文档（原子写入、写入串行化、拒绝�
 
 ```bash
 node --check index.js && node --check client.js   # 语法检查
-node --test test/                                 # 书架存储的回归测试
+node --test test/store.test.mjs                   # 书架存储的回归测试
 ```
 
 改完 `index.js` 后需要把插件**停用再启用**一次，Host 半边才会重新载入；
