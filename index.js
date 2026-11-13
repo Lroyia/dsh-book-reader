@@ -65,6 +65,8 @@ const IMPORT_BUDGET_MS = 90000;
 const BOOK_TIMEOUT_MS = 60000;
 /** Largest book the reader opens, in bytes. */
 const MAX_BOOK_BYTES = 300 * 1024 * 1024;
+/** How long the reader's reading positions may wait before they are written. */
+const PROGRESS_FLUSH_MS = 400;
 
 /**
  * Give up on an operation that takes too long.
@@ -444,6 +446,70 @@ async function refineRecord(dataDir, record, book) {
  */
 function makeRoutes(ctx, dataDir) {
   /**
+   * The reading positions that are waiting to be written.
+   *
+   * The reader reports its position on every scroll, and most of those
+   * reports are the same position again a moment later. They are gathered
+   * here and written once, so a long read does not turn into a long line of
+   * writes on the disk.
+   * @type {Map<string, {chapter: number, percent: number}>}
+   */
+  const pendingProgress = new Map();
+  /** The timer that writes the waiting positions. */
+  let progressTimer;
+
+  /**
+   * Write the reading positions that are waiting.
+   *
+   * Every position that arrived while the last batch was being written is
+   * gathered again, so a burst of reports costs one write, not one write per
+   * report.
+   * @returns {Promise<void>} resolves once the positions are on disk.
+   */
+  const flushProgress = async () => {
+    progressTimer = undefined;
+    while (pendingProgress.size > 0) {
+      const waiting = new Map(pendingProgress);
+      pendingProgress.clear();
+      const document = await readLibrary(dataDir);
+      let changed = false;
+      const books = document.books.map((book) => {
+        const position = waiting.get(book.id);
+        if (position === undefined) return book;
+        changed = true;
+        return {
+          ...book,
+          progress: { chapter: position.chapter, percent: position.percent, updatedAt: Date.now() },
+          lastReadAt: Date.now(),
+        };
+      });
+      // A position for a book that is not on the shelf changes nothing, and
+      // a shelf that does not change does not need to be written.
+      if (!changed) continue;
+      // The reading position is not worth a disk flush or a backup copy on
+      // every save; the write itself is still atomic.
+      await writeLibrary({ version: document.version, books }, dataDir, { backup: false, sync: false });
+    }
+  };
+
+  /**
+   * Gather a reading position and arrange for it to be written.
+   * @param {string} id - the book's identity.
+   * @param {number} chapter - the chapter the reader is on.
+   * @param {number} percent - how far into the book the reader is.
+   */
+  const rememberProgress = (id, chapter, percent) => {
+    pendingProgress.set(id, { chapter, percent });
+    if (progressTimer !== undefined) return;
+    progressTimer = setTimeout(() => {
+      progressTimer = undefined;
+      flushProgress().catch((error) => {
+        ctx.logger?.warn?.(`[book-reader] ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }, PROGRESS_FLUSH_MS);
+  };
+
+  /**
    * The trust fence plus a method check.
    * @param {import('node:http').IncomingMessage} req - the request.
    * @param {import('node:http').ServerResponse} res - the response.
@@ -473,7 +539,7 @@ function makeRoutes(ctx, dataDir) {
     writeJson(res, 400, { error: message });
   }
 
-  return [
+  const routes = [
     {
       kind: 'exact',
       path: ROUTES.health,
@@ -620,7 +686,9 @@ function makeRoutes(ctx, dataDir) {
           }
           const document = await readLibrary(dataDir);
           const books = document.books.filter((book) => book.id !== id);
-          await writeLibrary({ version: document.version, books }, dataDir);
+          // Taking the last book off the shelf is the one thing that may
+          // leave the shelf empty.
+          await writeLibrary({ version: document.version, books }, dataDir, { allowEmpty: true });
           writeJson(res, 200, { books });
         } catch (error) {
           fail(res, error);
@@ -738,23 +806,23 @@ function makeRoutes(ctx, dataDir) {
           const percent = typeof body?.percent === 'number' && Number.isFinite(body.percent)
             ? Math.min(1, Math.max(0, body.percent))
             : 0;
-          const document = await readLibrary(dataDir);
-          const books = document.books.map((book) => {
-            if (book.id !== id) return book;
-            return {
-              ...book,
-              progress: { chapter, percent, updatedAt: Date.now() },
-              lastReadAt: Date.now(),
-            };
-          });
-          await writeLibrary({ version: document.version, books }, dataDir);
-          writeJson(res, 200, { books });
+          if (id === '') {
+            writeJson(res, 400, { error: 'id is required' });
+            return;
+          }
+          // The position is remembered and written once for the whole burst.
+          // The answer does not carry the shelf: the reader asked where it
+          // is, not what else is on the shelf.
+          rememberProgress(id, chapter, percent);
+          writeJson(res, 200, { ok: true, id, chapter, percent });
         } catch (error) {
           fail(res, error);
         }
       },
     },
   ];
+
+  return { routes, flush: flushProgress };
 }
 
 /**
@@ -767,11 +835,16 @@ function makeRoutes(ctx, dataDir) {
  */
 export function apply(ctx, config) {
   const dataDir = typeof config?.dataDir === 'string' && config.dataDir.trim() !== '' ? config.dataDir.trim() : undefined;
-  const routes = makeRoutes(ctx, dataDir);
+  const { routes, flush } = makeRoutes(ctx, dataDir);
   ctx.effect(() => {
     const disposers = routes.map((route) => ctx.webServer.register(route));
     return () => {
       for (const dispose of disposers) dispose();
+      // The reading positions that are still waiting are written before the
+      // plugin goes away, so the reader does not lose its place.
+      flush().catch((error) => {
+        ctx.logger?.warn?.(`[book-reader] ${error instanceof Error ? error.message : String(error)}`);
+      });
     };
   }, 'book-reader: routes');
 }

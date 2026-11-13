@@ -53,6 +53,8 @@ window.__ModuleLoader__.load({
     const BATCH_SIZE = 20;
     /** Longest one import batch may take before the client gives up on it. */
     const BATCH_TIMEOUT_MS = 120000;
+    /** How often the reading position is written to the host. */
+    const SAVE_INTERVAL_MS = 1000;
 
     /** The ways the shelf can be ordered. */
     const SORT_KEYS = ['added', 'recent', 'name'];
@@ -778,7 +780,7 @@ window.__ModuleLoader__.load({
      * @param {object} props - the view's props.
      * @returns {React.ReactElement} the reader.
      */
-    function ReaderView({ record, t, onBack, onProgress, themeFace }) {
+    function ReaderView({ record, t, onBack, onProgress, onSaveProgress, themeFace }) {
       const [book, setBook] = useState(undefined);
       const [error, setError] = useState(undefined);
       const [chapter, setChapter] = useState(0);
@@ -794,6 +796,16 @@ window.__ModuleLoader__.load({
       const ratioRef = useRef(0);
       const zoomRef = useRef(null);
       const dragRef = useRef(null);
+      /**
+       * The reading position that is waiting to be written.
+       *
+       * The reader moves its place on every scroll, and most of those moves
+       * say the same thing a moment later. The position is kept here and
+       * written once a second, so a long read costs a long read and not a
+       * flood of requests.
+       * @type {{id: string, chapter: number, percent: number}|undefined}
+       */
+      const pendingPositionRef = useRef(undefined);
 
       // The enlarged picture: its place, its size and where it is dragged to.
       const openZoom = (src) => setZoom({ src, scale: 1, x: 0, y: 0 });
@@ -918,13 +930,63 @@ window.__ModuleLoader__.load({
       const index = Math.min(chapter, Math.max(0, total - 1));
       const current = total > 0 ? chapters[index] : undefined;
 
+      /**
+       * How far into the book a place is.
+       * @param {number} nextChapter - the chapter the reader is on.
+       * @param {number} ratio - how far into that chapter the reader is.
+       * @returns {number} the share of the book that lies behind the reader.
+       */
+      const percentOf = useCallback(
+        (nextChapter, ratio) => (total > 0 ? Math.min(1, Math.max(0, (nextChapter + ratio) / total)) : 0),
+        [total],
+      );
+
+      /**
+       * Remember where the reader is.
+       *
+       * The shelf is not on screen while a book is open, so the place is
+       * remembered without a render: a render for every scroll event would
+       * rebuild the whole chapter while the reader is moving through it.
+       * @param {number} nextChapter - the chapter the reader is on.
+       * @param {number} ratio - how far into that chapter the reader is.
+       */
       const report = useCallback(
         (nextChapter, ratio) => {
-          const percent = total > 0 ? Math.min(1, Math.max(0, (nextChapter + ratio) / total)) : 0;
+          const percent = percentOf(nextChapter, ratio);
           onProgress(record.id, nextChapter, percent);
+          pendingPositionRef.current = { id: record.id, chapter: nextChapter, percent };
         },
-        [onProgress, record.id, total],
+        [onProgress, percentOf, record.id],
       );
+
+      /**
+       * Write the reading position that is waiting to be written.
+       * @returns {Promise<void>} resolves once the position has been written.
+       */
+      const writePosition = useCallback(async () => {
+        const position = pendingPositionRef.current;
+        if (position === undefined) return;
+        pendingPositionRef.current = undefined;
+        try {
+          await onSaveProgress(position.id, position.chapter, position.percent);
+        } catch {
+          // The position is a convenience; a failed save keeps the older one.
+        }
+      }, [onSaveProgress]);
+
+      // The position is written once a second, and the last one is written
+      // when the reader goes away. The reader therefore keeps its place,
+      // and the host sees one request a second instead of one request per
+      // scroll event.
+      useEffect(() => {
+        const timer = setInterval(() => {
+          void writePosition();
+        }, SAVE_INTERVAL_MS);
+        return () => {
+          clearInterval(timer);
+          void writePosition();
+        };
+      }, [writePosition]);
 
       useEffect(() => {
         if (current === undefined) return;
@@ -1173,19 +1235,35 @@ window.__ModuleLoader__.load({
       const [group, setGroup] = useState(() => (GROUP_MODES.includes(readStored(STORAGE.group, 'none')) ? readStored(STORAGE.group, 'none') : 'none'));
       const [collapsed, setCollapsed] = useState(() => new Set());
       const [, setLocaleRevision] = useState(0);
+      /**
+       * The shelf as it stands, without waiting for the next render.
+       *
+       * The reader moves its place while a book is open, and the shelf is
+       * not on screen then. Keeping the shelf in a box as well lets the
+       * reader move without asking the page for a render.
+       */
+      const booksRef = useRef(books);
+      /**
+       * Put a new shelf on the screen and in the box.
+       * @param {object[]} next - the books on the shelf.
+       */
+      const updateShelf = useCallback((next) => {
+        booksRef.current = next;
+        setBooks(next);
+      }, []);
 
       const load = useCallback(async () => {
         setBusy(true);
         try {
           const result = await request(API.library);
-          setBooks(Array.isArray(result?.books) ? result.books : []);
+          updateShelf(Array.isArray(result?.books) ? result.books : []);
           setError(undefined);
         } catch (failure) {
           setError(t('shelf.failed', { error: failure instanceof Error ? failure.message : String(failure) }));
         } finally {
           setBusy(false);
         }
-      }, [t]);
+      }, [t, updateShelf]);
 
       useEffect(() => {
         load();
@@ -1207,29 +1285,49 @@ window.__ModuleLoader__.load({
         async (record) => {
           try {
             const result = await request(API.remove, { method: 'POST', body: { id: record.id } });
-            setBooks(Array.isArray(result?.books) ? result.books : []);
+            updateShelf(Array.isArray(result?.books) ? result.books : []);
           } catch (failure) {
             setError(t('shelf.failed', { error: failure instanceof Error ? failure.message : String(failure) }));
           }
         },
-        [t],
+        [t, updateShelf],
       );
 
+      /**
+       * Remember where the reader is.
+       *
+       * The shelf is not on screen while a book is open, so the place is
+       * remembered without a render. The place is written to the host by
+       * the reader itself, once a second.
+       * @param {string} id - the book's identity.
+       * @param {number} chapter - the chapter the reader is on.
+       * @param {number} percent - how far into the book the reader is.
+       */
       const onProgress = useCallback((id, chapter, percent) => {
-        setBooks((current) =>
-          current.map((book) =>
-            book.id === id ? { ...book, progress: { chapter, percent, updatedAt: Date.now() }, lastReadAt: Date.now() } : book,
-          ),
+        const now = Date.now();
+        booksRef.current = booksRef.current.map((book) =>
+          book.id === id ? { ...book, progress: { chapter, percent, updatedAt: now }, lastReadAt: now } : book,
         );
-        request(API.progress, { method: 'POST', body: { id, chapter, percent } }).catch(() => {
-          // The position is a convenience; a failed save keeps the older one.
-        });
       }, []);
 
-      const onImported = useCallback((next) => {
-        setBooks(Array.isArray(next) ? next : []);
-        setView('shelf');
+      /**
+       * Write the reader's place to the host.
+       * @param {string} id - the book's identity.
+       * @param {number} chapter - the chapter the reader is on.
+       * @param {number} percent - how far into the book the reader is.
+       * @returns {Promise<void>} resolves once the place is saved.
+       */
+      const saveProgress = useCallback(async (id, chapter, percent) => {
+        await request(API.progress, { method: 'POST', body: { id, chapter, percent } });
       }, []);
+
+      const onImported = useCallback(
+        (next) => {
+          updateShelf(Array.isArray(next) ? next : []);
+          setView('shelf');
+        },
+        [updateShelf],
+      );
 
       const onToggleGroup = useCallback((key) => {
         setCollapsed((current) => {
@@ -1289,8 +1387,14 @@ window.__ModuleLoader__.load({
               record: reading,
               t,
               themeFace: theme,
-              onBack: () => setReading(undefined),
+              onBack: () => {
+                // The shelf is on screen again, so it takes the place the
+                // reader reached.
+                updateShelf(booksRef.current);
+                setReading(undefined);
+              },
               onProgress,
+              onSaveProgress: saveProgress,
             })
           : h(
               React.Fragment,
