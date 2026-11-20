@@ -70,6 +70,8 @@ window.__ModuleLoader__.load({
       'shelf.empty.title': '书架还是空的',
       'shelf.empty.hint': '扫描一个本地文件夹，把 EPUB / TXT / PDF / DOCX 书籍收进书架。文件始终留在你自己的磁盘上。',
       'shelf.empty.search': '没有匹配「{query}」的书。',
+      'shelf.empty.search.hint': '换个关键词试试，或者把搜索清空。',
+      'shelf.search.clear': '清除搜索',
       'shelf.scan': '扫描文件夹',
       'shelf.refresh': '刷新',
       'shelf.remove': '移除',
@@ -134,6 +136,8 @@ window.__ModuleLoader__.load({
       'shelf.empty.title': 'The shelf is empty',
       'shelf.empty.hint': 'Scan a local folder to add EPUB, TXT, PDF and DOCX books to the shelf. The files stay on your own disk.',
       'shelf.empty.search': 'No book matches "{query}".',
+      'shelf.empty.search.hint': 'Try another word, or clear the search.',
+      'shelf.search.clear': 'Clear search',
       'shelf.scan': 'Scan folder',
       'shelf.refresh': 'Refresh',
       'shelf.remove': 'Remove',
@@ -491,18 +495,29 @@ window.__ModuleLoader__.load({
 
     /**
      * The shelf: search, sorting, grouping and the books themselves.
+     *
+     * The toolbar stays on screen for as long as a search is running. A
+     * search that finds nothing must not take the search field with it: the
+     * field is the only way back, and a field that disappears under the
+     * user's hands leaves the shelf stuck until the panel is left and opened
+     * again. The field therefore stays mounted, which also keeps the caret,
+     * the focus and the input method's composition alive.
      * @param {object} props - the view's props.
      * @returns {React.ReactElement} the shelf.
      */
     function ShelfView({ books, groups, t, error, busy, query, sort, group, collapsed, onQuery, onSort, onGroup, onToggleGroup, onScan, onOpen, onRemove }) {
-      if (books.length === 0 && !busy) {
-        if (query.trim() !== '') {
-          return h(
-            'div',
-            { className: 'nr-empty' },
-            h('div', { className: 'nr-emptyTitle' }, t('shelf.empty.search', { query: query.trim() })),
-          );
-        }
+      const searchRef = useRef(null);
+      const searching = query.trim() !== '';
+      /**
+       * Put the search away and give the keyboard back to the search field.
+       */
+      const clearSearch = useCallback(() => {
+        onQuery('');
+        const field = searchRef.current;
+        if (field !== null && field !== undefined && typeof field.focus === 'function') field.focus();
+      }, [onQuery]);
+
+      if (books.length === 0 && !busy && !searching) {
         return h(
           'div',
           { className: 'nr-empty' },
@@ -512,6 +527,7 @@ window.__ModuleLoader__.load({
           error === undefined ? null : h('div', { className: 'nr-error' }, error),
         );
       }
+      const empty = books.length === 0;
       return h(
         React.Fragment,
         null,
@@ -521,6 +537,7 @@ window.__ModuleLoader__.load({
           h('input', {
             className: 'nr-input nr-search',
             type: 'search',
+            ref: searchRef,
             value: query,
             placeholder: t('shelf.search'),
             'aria-label': t('shelf.search'),
@@ -565,33 +582,44 @@ window.__ModuleLoader__.load({
             h('option', { value: 'format' }, t('shelf.group.format')),
           ),
         ),
-        books.length === 0 && busy ? h('div', { className: 'nr-loading' }, t('reader.loading')) : null,
-        groups.map((entry) =>
-          h(
-            'section',
-            { className: 'nr-group', key: entry.key || 'all' },
-            group === 'none'
-              ? null
-              : h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'nr-groupHeader',
-                    onClick: () => onToggleGroup(entry.key),
-                  },
-                  h('span', { className: 'nr-groupCaret' }, collapsed.has(entry.key) ? '▸' : '▾'),
-                  h('span', null, entry.name),
-                  h('span', { className: 'nr-groupCount' }, t('shelf.group.count', { count: entry.books.length })),
-                ),
-            collapsed.has(entry.key)
-              ? null
-              : h(
-                  'div',
-                  { className: 'nr-list' },
-                  entry.books.map((book) => h(BookRow, { book, t, onOpen, onRemove })),
-                ),
-          ),
-        ),
+        empty && busy ? h('div', { className: 'nr-loading' }, t('reader.loading')) : null,
+        empty && !busy && searching
+          ? h(
+              'div',
+              { className: 'nr-empty' },
+              h('div', { className: 'nr-emptyTitle' }, t('shelf.empty.search', { query: query.trim() })),
+              h('div', { className: 'nr-emptyHint' }, t('shelf.empty.search.hint')),
+              h('button', { type: 'button', className: 'nr-button', onClick: clearSearch }, t('shelf.search.clear')),
+            )
+          : null,
+        empty
+          ? null
+          : groups.map((entry) =>
+              h(
+                'section',
+                { className: 'nr-group', key: entry.key || 'all' },
+                group === 'none'
+                  ? null
+                  : h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'nr-groupHeader',
+                        onClick: () => onToggleGroup(entry.key),
+                      },
+                      h('span', { className: 'nr-groupCaret' }, collapsed.has(entry.key) ? '▸' : '▾'),
+                      h('span', null, entry.name),
+                      h('span', { className: 'nr-groupCount' }, t('shelf.group.count', { count: entry.books.length })),
+                    ),
+                collapsed.has(entry.key)
+                  ? null
+                  : h(
+                      'div',
+                      { className: 'nr-list' },
+                      entry.books.map((book) => h(BookRow, { book, t, onOpen, onRemove })),
+                    ),
+              ),
+            ),
         error === undefined ? null : h('div', { className: 'nr-error' }, error),
       );
     }
