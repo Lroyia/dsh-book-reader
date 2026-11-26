@@ -17,7 +17,9 @@
     "lib/*.js",
     "locale/*.json",
     "icon.svg",
+    "assets/*.png",
     "docs/*.png",
+    "screenshots.json",
     "README.md",
     "LICENSE"
   ],
